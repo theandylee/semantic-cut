@@ -1,0 +1,19 @@
+<Project>
+  <!-- All projects (semcut.exe, SemanticCut.Gui.exe, Core) build into ONE folder: <repo>\build\
+       so shared DLLs (ONNX Runtime, SkiaSharp, SQLite, Core...) exist once instead of per-app. -->
+  <PropertyGroup>
+    <OutputPath>$(MSBuildThisFileDirectory)build\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <!-- Windows x64 only: ship just the win-x64 natives (flattened next to the exes), not linux/osx/android/arm ones. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <!-- Don't copy huge .pdb files that ship inside NuGet packages (SkiaSharp natives alone are ~95 MB each). -->
+    <CopyDebugSymbolFilesFromPackages>false</CopyDebugSymbolFilesFromPackages>
+  </PropertyGroup>
+
+  <!-- libSkiaSharp.pdb is a ~95 MB native-symbols file that NuGet drops next to the exe; we never need it at runtime. -->
+  <Target Name="DropSkiaSymbols" AfterTargets="Build">
+    <Delete Files="$(OutputPath)libSkiaSharp.pdb" ContinueOnError="true"/>
+  </Target>
+</Project>

@@ -1,0 +1,14 @@
+models/
+bin/
+obj/
+*.user
+.vs/
+testdata/
+build/
+
+*.db
+*.db-wal
+*.db-shm
+*.part
+.idea/
+*.suo
