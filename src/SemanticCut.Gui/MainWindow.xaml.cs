@@ -91,6 +91,9 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         UpdateLabels();
+        // Slider marks its own press as handled, so a plain XAML handler would never run: ask for handled events too.
+        SeekBar.AddHandler(UIElement.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler(SeekBar_MouseDown), true);
+        SeekBar.AddHandler(UIElement.MouseLeftButtonUpEvent, new MouseButtonEventHandler(SeekBar_MouseUp), true);
         _player = new FfmpegPlayer(PlayerImage);
         _player.Failed += Player_Failed;
         _timer.Tick += Timer_Tick;
@@ -170,6 +173,55 @@ public partial class MainWindow : Window
         if (dlg.ShowDialog() == true) await LoadFolderAsync(dlg.FolderName);
     }
 
+    // ---- recent folders / files ------------------------------------------
+    void Recent_Click(object s, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu
+        {
+            PlacementTarget = RecentBtn,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+            MaxWidth = 640,
+        };
+        var recent = RecentStore.Load();
+        if (recent.Count == 0) menu.Items.Add(new MenuItem { Header = "(nothing opened yet)", IsEnabled = false });
+
+        foreach (var path in recent)
+        {
+            bool isDir = Directory.Exists(path);
+            var item = new MenuItem
+            {
+                // A TextBlock header: a plain string would treat '_' in names as an access-key marker.
+                Header = new TextBlock { Text = path, TextTrimming = TextTrimming.CharacterEllipsis },
+                Icon = new TextBlock { Text = isDir ? "" : "", FontFamily = new FontFamily("Segoe MDL2 Assets") }, // folder / video
+                ToolTip = path,
+            };
+            var p = path;
+            item.Click += async (_, _) => await OpenRecentAsync(p);
+            menu.Items.Add(item);
+        }
+
+        if (recent.Count > 0)
+        {
+            menu.Items.Add(new Separator());
+            var clear = new MenuItem { Header = "Clear list" };
+            clear.Click += (_, _) => RecentStore.Clear();
+            menu.Items.Add(clear);
+        }
+        menu.IsOpen = true;
+    }
+
+    async Task OpenRecentAsync(string path)
+    {
+        if (_running) return;
+        if (Directory.Exists(path)) await LoadFolderAsync(path);
+        else if (File.Exists(path)) SetVideo(path);
+        else
+        {
+            RecentStore.Remove(path);
+            StatusText.Text = "No longer exists, removed from the list: " + path;
+        }
+    }
+
     async void Window_Drop(object s, DragEventArgs e)
     {
         if (e.Data.GetData(DataFormats.FileDrop) is not string[] f || f.Length == 0) return;
@@ -199,6 +251,7 @@ public partial class MainWindow : Window
         _videos = [v]; _cur = v;
         VideoPanel.Visibility = Visibility.Collapsed;
         PathBox.Text = path;
+        RecentStore.Add(path);
         StatusText.Text = "Ready. Press Process. (Single video: results are not saved. Open a folder to keep an index.)";
         UpdateButtons();
     }
@@ -215,6 +268,7 @@ public partial class MainWindow : Window
             var sw = Stopwatch.StartNew();
             _lib = await Task.Run(() => Library.Open(folder));
             _videos = _lib.Videos;
+            RecentStore.Add(folder);
             _cur = _videos.FirstOrDefault(v => v.Indexed) ?? _videos.FirstOrDefault();
             VideoPanel.Visibility = Visibility.Visible;
             RefreshVideoList();
@@ -315,7 +369,7 @@ public partial class MainWindow : Window
 
     void SetBusyUi(bool busy)
     {
-        OpenBtn.IsEnabled = OpenFolderBtn.IsEnabled = !busy;
+        OpenBtn.IsEnabled = OpenFolderBtn.IsEnabled = RecentBtn.IsEnabled = !busy;
         EveryBox.IsEnabled = VideoList.IsEnabled = !busy;
         if (busy) { SetSearchEnabled(false); ClearBtn.IsEnabled = false; }
         RunBtn.Content = _running ? "Cancel" : RunBtn.Content;
@@ -522,7 +576,8 @@ public partial class MainWindow : Window
     {
         if (ThrLabel == null || MaxLabel == null || NoLimitBox == null) return; // events fire during InitializeComponent
         ThrLabel.Text = $"Similarity threshold: {ThrSlider.Value:F2}";
-        MaxSlider.IsEnabled = NoLimitBox.IsChecked != true;
+        // Hidden (not Collapsed) so the column doesn't change height when toggling.
+        MaxSlider.Visibility = NoLimitBox.IsChecked == true ? Visibility.Hidden : Visibility.Visible;
         MaxLabel.Text = NoLimitBox.IsChecked == true ? "Max segment length: unlimited" : $"Max segment length: {MaxSlider.Value:F0} s";
     }
 
@@ -694,6 +749,10 @@ public partial class MainWindow : Window
         PlaySegment(it.V, it.V.Segments[it.Seg]);
     }
 
+    const string IconPause = "", IconPlay = ""; // Segoe MDL2 Assets
+    LibraryVideo? _playingVideo;
+    bool _scrubbing;
+
     void PlaySegment(LibraryVideo v, Segment seg)
     {
         try { Prerequisites.RequireFfmpeg(); }
@@ -702,43 +761,83 @@ public partial class MainWindow : Window
         // The decode size depends on the source size; probe it now if the background probing hasn't reached this file yet.
         if (v.Width <= 0) { var info = VideoIndexer.Probe(v.FullPath); v.Width = info.Width; v.Height = info.Height; }
 
-        _playing = seg;
-        PauseBtn.IsEnabled = true; PauseBtn.Content = "Pause";
-        PlayerLabel.Text = $"{v.Rel}: {Fmt(seg.Start)} – {Fmt(seg.End)} (loops)";
+        _playing = seg; _playingVideo = v;
+        SetPauseIcon(false); PauseBtn.IsEnabled = true;
+        SeekBar.Maximum = Math.Max(0.5, seg.End - seg.Start); SeekBar.Value = 0; SeekBar.IsEnabled = true;
+        PlayerLabel.Text = $"{v.Rel}: {Fmt(seg.Start)} - {Fmt(seg.End)} (loops)";
         _player.Muted = MuteBox.IsChecked == true;
         _player.Play(v.FullPath, seg.Start, seg.End, v.Width, v.Height);
         _timer.Start();
+    }
+
+    void SetPauseIcon(bool paused)
+    {
+        PauseBtn.Content = paused ? IconPlay : IconPause;
+        PauseBtn.ToolTip = paused ? "Play" : "Pause";
     }
 
     void Player_Failed(string message)
     {
         _timer.Stop();
         PlayerLabel.Text = message;
-        PauseBtn.IsEnabled = false;
+        PauseBtn.IsEnabled = false; SeekBar.IsEnabled = false;
     }
+
+    void ShowPosition(double pos) =>
+        PlayerLabel.Text = $"{Fmt(Math.Clamp(pos, _playing!.Start, _playing.End))}  in  {Fmt(_playing.Start)} - {Fmt(_playing.End)} (loops)";
 
     void Timer_Tick(object? s, EventArgs e)
     {
-        if (_playing == null || _player.Paused) return;
-        PlayerLabel.Text = $"{Fmt(Math.Clamp(_player.Position, _playing.Start, _playing.End))}  in  {Fmt(_playing.Start)} – {Fmt(_playing.End)} (loops)";
+        if (_playing == null || _player.Paused || _scrubbing) return;
+        double pos = _player.Position;
+        ShowPosition(pos);
+        SeekBar.Value = Math.Clamp(pos - _playing.Start, 0, SeekBar.Maximum);
+    }
+
+    void SeekBar_MouseDown(object s, MouseButtonEventArgs e)
+    {
+        if (_playing == null) return;
+        _scrubbing = true;
+    }
+
+    void SeekBar_ValueChanged(object s, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_scrubbing && _playing != null) ShowPosition(_playing.Start + SeekBar.Value);
+    }
+
+    void SeekBar_MouseUp(object s, MouseButtonEventArgs e)
+    {
+        if (!_scrubbing) return;
+        _scrubbing = false;
+        if (_playing == null || _playingVideo == null) return;
+        var v = _playingVideo;
+        _player.Play(v.FullPath, _playing.Start, _playing.End, v.Width, v.Height, SeekBar.Value, keepPaused: true);
+        ShowPosition(_playing.Start + SeekBar.Value);
     }
 
     void Pause_Click(object s, RoutedEventArgs e)
     {
         if (_playing == null) return;
         _player.Paused = !_player.Paused;
-        PauseBtn.Content = _player.Paused ? "Play" : "Pause";
+        SetPauseIcon(_player.Paused);
     }
 
-    void Mute_Changed(object s, RoutedEventArgs e) => _player.Muted = MuteBox.IsChecked == true;
+    void Mute_Changed(object s, RoutedEventArgs e)
+    {
+        bool muted = MuteBox.IsChecked == true;
+        _player.Muted = muted;
+        MuteBox.Content = muted ? "\uE74F" : "\uE767"; // Segoe MDL2 Assets: mute / volume
+        MuteBox.ToolTip = muted ? "Unmute" : "Mute";
+    }
 
     void StopPlayback()
     {
         _timer.Stop();
         _player.Stop();
         PlayerImage.Source = null;
-        _playing = null;
-        PauseBtn.Content = "Pause"; PauseBtn.IsEnabled = false;
+        _playing = null; _playingVideo = null; _scrubbing = false;
+        SetPauseIcon(false); PauseBtn.IsEnabled = false;
+        SeekBar.Value = 0; SeekBar.IsEnabled = false;
         PlayerLabel.Text = "Select a segment to play it (loops).";
     }
 

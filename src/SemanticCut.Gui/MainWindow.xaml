@@ -3,85 +3,126 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Semantic Cut" Width="1400" Height="820" AllowDrop="True" Drop="Window_Drop"
         ThemeMode="Dark">
+    <Window.Resources>
+        <!-- The Fluent theme's GroupBox draws an unwanted white outline: use a plain template (grey rounded border,
+             header sitting on the top line). -->
+        <Style TargetType="GroupBox">
+            <Setter Property="BorderBrush" Value="#666"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="GroupBox">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Border Grid.RowSpan="2" Margin="0,10,0,0" CornerRadius="4"
+                                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"/>
+                            <Border Grid.Row="0" Margin="10,0,0,0" Padding="4,0" HorizontalAlignment="Left"
+                                    Background="{Binding Background, RelativeSource={RelativeSource AncestorType=Window}}">
+                                <ContentPresenter ContentSource="Header" RecognizesAccessKey="True"/>
+                            </Border>
+                            <ContentPresenter Grid.Row="1" Margin="{TemplateBinding Padding}"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
     <Grid Margin="12">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- Row 0: file + run -->
-        <DockPanel Grid.Row="0" LastChildFill="True">
-            <Button x:Name="OpenFolderBtn" DockPanel.Dock="Left" Content="Open folder…" Padding="14,6" Click="OpenFolder_Click"/>
-            <Button x:Name="OpenBtn" DockPanel.Dock="Left" Content="Open video…" Padding="14,6" Margin="8,0,0,0" Click="Open_Click"/>
-            <Button x:Name="RunBtn" DockPanel.Dock="Right" Content="Process" Padding="22,6" Margin="8,0,0,0" Click="Run_Click" IsEnabled="False"/>
-            <TextBox x:Name="PathBox" Margin="8,0,0,0" VerticalContentAlignment="Center" IsReadOnly="True"
-                     Text="(drop a folder or video file here, or use the buttons)"/>
-        </DockPanel>
-
-        <!-- Row 1: parameters -->
-        <Grid Grid.Row="1" Margin="0,12,0,0">
+        <!-- Row 0: controls in three narrow columns (source | segmentation | search), left-aligned instead of full width -->
+        <Grid Grid.Row="0" HorizontalAlignment="Left">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="380"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="280"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="420"/>
             </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="Sample every" VerticalAlignment="Center"/>
-                <ComboBox x:Name="EveryBox" Width="70" Margin="8,0,4,0" SelectedIndex="1">
-                    <ComboBoxItem Content="1"/><ComboBoxItem Content="2"/><ComboBoxItem Content="3"/><ComboBoxItem Content="5"/>
-                </ComboBox>
-                <TextBlock Text="s" VerticalAlignment="Center" Margin="0,0,24,0"/>
-            </StackPanel>
-            <StackPanel Grid.Column="1" Margin="0,0,24,0">
-                <TextBlock x:Name="ThrLabel" Text="Similarity threshold: 0.85"/>
+
+            <!-- Column 1: source + run -->
+            <GroupBox Grid.Column="0" Header="Source" Padding="10,6">
+              <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="OpenFolderBtn" Content="Open folder…" Padding="14,6" Click="OpenFolder_Click"/>
+                    <Button x:Name="OpenBtn" Content="Open video…" Padding="14,6" Margin="8,0,0,0" Click="Open_Click"/>
+                    <Button x:Name="RecentBtn" Content="Recent ▾" Padding="14,6" Margin="8,0,0,0" Click="Recent_Click"
+                            ToolTip="Recently opened folders and videos"/>
+                </StackPanel>
+                <TextBox x:Name="PathBox" Margin="0,8,0,0" VerticalContentAlignment="Center" IsReadOnly="True"
+                         Text="(drop a folder or video file here, or use the buttons)"/>
+                <Button x:Name="RunBtn" Content="Process" Padding="22,6" Margin="0,8,0,0" HorizontalAlignment="Left"
+                        Click="Run_Click" IsEnabled="False"/>
+              </StackPanel>
+            </GroupBox>
+
+            <!-- Column 2: segmentation parameters -->
+            <GroupBox Grid.Column="2" Header="Segmentation" Padding="10,6">
+              <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="Sample every" VerticalAlignment="Center"/>
+                    <ComboBox x:Name="EveryBox" Width="70" Margin="8,0,4,0" SelectedIndex="1">
+                        <ComboBoxItem Content="1"/><ComboBoxItem Content="2"/><ComboBoxItem Content="3"/><ComboBoxItem Content="5"/>
+                    </ComboBox>
+                    <TextBlock Text="s" VerticalAlignment="Center"/>
+                </StackPanel>
+                <TextBlock x:Name="ThrLabel" Margin="0,10,0,0" Text="Similarity threshold: 0.85"/>
                 <Slider x:Name="ThrSlider" Minimum="0.50" Maximum="0.99" Value="0.85" SmallChange="0.01" LargeChange="0.05"
                         ValueChanged="Params_Changed"/>
-            </StackPanel>
-            <StackPanel Grid.Column="2" Margin="0,0,24,0">
-                <DockPanel>
-                    <CheckBox x:Name="NoLimitBox" DockPanel.Dock="Right" Content="No limit" Margin="12,0,0,0"
+                <DockPanel Margin="0,6,0,0">
+                    <CheckBox x:Name="NoLimitBox" DockPanel.Dock="Right" Content="No limit" Margin="12,0,0,0" IsChecked="True"
                               Checked="Params_Changed" Unchecked="Params_Changed"/>
                     <TextBlock x:Name="MaxLabel" Text="Max segment length: 30 s" VerticalAlignment="Center"/>
                 </DockPanel>
                 <Slider x:Name="MaxSlider" Minimum="4" Maximum="180" Value="30" SmallChange="1" LargeChange="10"
                         ValueChanged="Params_Changed"/>
-            </StackPanel>
-            <CheckBox x:Name="BlipBox" Grid.Column="3" Content="Ignore 1-frame blips" IsChecked="True" VerticalAlignment="Center"
-                      Checked="Params_Changed" Unchecked="Params_Changed"/>
+                <CheckBox x:Name="BlipBox" Content="Ignore 1-frame blips" IsChecked="True" Margin="0,6,0,0"
+                          Checked="Params_Changed" Unchecked="Params_Changed"/>
+              </StackPanel>
+            </GroupBox>
+
+            <!-- Column 3: search -->
+            <GroupBox Grid.Column="4" Header="Search" Padding="10,6">
+              <StackPanel>
+                <DockPanel LastChildFill="True">
+                    <Image x:Name="QueryThumb" DockPanel.Dock="Left" Height="30" Margin="0,0,8,0" Visibility="Collapsed" Cursor="Hand"
+                           ToolTip="Query image. Click to remove it." MouseLeftButtonDown="QueryThumb_Click"/>
+                    <TextBox x:Name="SearchBox" VerticalContentAlignment="Center" KeyDown="SearchBox_KeyDown" IsEnabled="False"
+                             ToolTip="Describe what is visible, e.g. 'close-up of hands pouring coffee, morning light' (max ~60 tokens)"/>
+                </DockPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <Button x:Name="SearchBtn" Content="Search" Padding="18,6" Click="Search_Click" IsEnabled="False"/>
+                    <Button x:Name="ImageBtn" Content="Image…" Padding="14,6" Margin="8,0,0,0" Click="Image_Click" IsEnabled="False"
+                            ToolTip="Search by a reference image (or drop an image file on the window). Combines with the text if both are set."/>
+                    <Button x:Name="SimilarBtn" Content="Find similar" Padding="14,6" Margin="8,0,0,0" Click="Similar_Click" IsEnabled="False"
+                            ToolTip="Use the selected segment itself as the query"/>
+                    <Button x:Name="ClearBtn" Content="Clear" Padding="14,6" Margin="8,0,0,0" Click="Clear_Click" IsEnabled="False"/>
+                </StackPanel>
+              </StackPanel>
+            </GroupBox>
         </Grid>
 
-        <!-- Row 2: text search -->
-        <DockPanel Grid.Row="2" Margin="0,12,0,0" LastChildFill="True">
-            <Button x:Name="ClearBtn" DockPanel.Dock="Right" Content="Clear" Padding="14,6" Margin="8,0,0,0" Click="Clear_Click" IsEnabled="False"/>
-            <Button x:Name="SearchBtn" DockPanel.Dock="Right" Content="Search" Padding="18,6" Margin="8,0,0,0" Click="Search_Click" IsEnabled="False"/>
-            <Button x:Name="SimilarBtn" DockPanel.Dock="Right" Content="Find similar" Padding="14,6" Margin="8,0,0,0" Click="Similar_Click" IsEnabled="False"
-                    ToolTip="Use the selected segment itself as the query"/>
-            <Button x:Name="ImageBtn" DockPanel.Dock="Right" Content="Image…" Padding="14,6" Margin="8,0,0,0" Click="Image_Click" IsEnabled="False"
-                    ToolTip="Search by a reference image (or drop an image file on the window). Combines with the text if both are set."/>
-            <Image x:Name="QueryThumb" DockPanel.Dock="Left" Height="30" Margin="0,0,8,0" Visibility="Collapsed" Cursor="Hand"
-                   ToolTip="Query image. Click to remove it." MouseLeftButtonDown="QueryThumb_Click"/>
-            <TextBox x:Name="SearchBox" VerticalContentAlignment="Center" KeyDown="SearchBox_KeyDown" IsEnabled="False"
-                     ToolTip="Describe what is visible, e.g. 'close-up of hands pouring coffee, morning light' (max ~60 tokens)"/>
-        </DockPanel>
-
-        <!-- Row 3: progress + status -->
-        <StackPanel Grid.Row="3" Margin="0,12,0,0">
+        <!-- Row 1: progress + status -->
+        <StackPanel Grid.Row="1" Margin="0,12,0,0">
             <ProgressBar x:Name="Progress" Height="8" Minimum="0" Maximum="1"/>
             <TextBlock x:Name="StatusText" Margin="0,6,0,0" Text="Idle."/>
         </StackPanel>
 
-        <!-- Row 4: timeline -->
-        <Border Grid.Row="4" Margin="0,12,0,0" Height="54" BorderBrush="#555" BorderThickness="1" ClipToBounds="True">
+        <!-- Row 2: timeline -->
+        <Border Grid.Row="2" Margin="0,12,0,0" Height="54" BorderBrush="#555" BorderThickness="1" ClipToBounds="True">
             <Canvas x:Name="Timeline" SizeChanged="Timeline_SizeChanged" Background="#222"/>
         </Border>
 
-        <!-- Row 5: segment list + player -->
-        <Grid Grid.Row="5" Margin="0,12,0,0">
+        <!-- Row 3: segment list + player -->
+        <Grid Grid.Row="3" Margin="0,12,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -130,12 +171,22 @@
                     <!-- Frames are decoded by ffmpeg and drawn here (see FfmpegPlayer): plays any format ffmpeg can read. -->
                     <Image x:Name="PlayerImage" Stretch="Uniform" RenderOptions.BitmapScalingMode="Linear"/>
                 </Border>
-                <TextBlock x:Name="PlayerLabel" Margin="0,8,0,0" Text="Select a segment to play it (loops)." TextWrapping="Wrap"/>
-                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                    <Button x:Name="PauseBtn" Content="Pause" Padding="16,5" Click="Pause_Click" IsEnabled="False"/>
-                    <CheckBox x:Name="MuteBox" Content="Mute" Margin="14,0,0,0" VerticalAlignment="Center"
-                              Checked="Mute_Changed" Unchecked="Mute_Changed"/>
-                </StackPanel>
+                <!-- Transport row: play/pause and mute on the left, seek bar (within the selected segment) filling the rest. -->
+                <Grid Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="PauseBtn" Grid.Column="0" Content="&#xE769;" FontFamily="Segoe MDL2 Assets" FontSize="16"
+                            Width="44" Padding="0,6" ToolTip="Pause" Click="Pause_Click" IsEnabled="False"/>
+                    <ToggleButton x:Name="MuteBox" Grid.Column="1" Content="&#xE767;" FontFamily="Segoe MDL2 Assets" FontSize="16"
+                                  Width="44" Padding="0,6" Margin="6,0,0,0" ToolTip="Mute"
+                                  Checked="Mute_Changed" Unchecked="Mute_Changed"/>
+                    <Slider x:Name="SeekBar" Grid.Column="2" Margin="12,0,0,0" VerticalAlignment="Center" Minimum="0" Maximum="1"
+                            IsMoveToPointEnabled="True" Focusable="False" IsEnabled="False" ValueChanged="SeekBar_ValueChanged"/>
+                </Grid>
+                <TextBlock x:Name="PlayerLabel" Margin="0,6,0,0" Text="Select a segment to play it (loops)." TextWrapping="Wrap"/>
             </StackPanel>
         </Grid>
     </Grid>

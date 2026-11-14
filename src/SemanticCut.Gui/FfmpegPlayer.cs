@@ -77,8 +77,9 @@ public sealed class FfmpegPlayer : IDisposable
     }
 
     /// <summary>Starts (or restarts) looped playback of [start, end) of <paramref name="path"/>. srcW/srcH may be 0 if unknown.</summary>
-    public void Play(string path, double start, double end, int srcW, int srcH)
+    public void Play(string path, double start, double end, int srcW, int srcH, double offset = 0, bool keepPaused = false)
     {
+        bool wasPaused = _paused;
         Stop();
 
         // Decode size: source size, shrunk to fit MaxW x MaxH (even numbers, never upscaled).
@@ -86,14 +87,16 @@ public sealed class FfmpegPlayer : IDisposable
         double k = Math.Min(1.0, Math.Min((double)MaxW / srcW, (double)MaxH / srcH));
         int w = Math.Max(2, (int)Math.Round(srcW * k) / 2 * 2), h = Math.Max(2, (int)Math.Round(srcH * k) / 2 * 2);
 
+        // The new bitmap is shown only once its first frame has been written (see RunOnce), so the previous
+        // picture stays on screen while ffmpeg starts instead of flashing black.
         var bmp = new WriteableBitmap(w, h, 96, 96, PixelFormats.Bgra32, null);
-        _target.Source = bmp;
 
-        _paused = false;
+        _paused = keepPaused && wasPaused;
         if (!_timerRaised) { timeBeginPeriod(1); _timerRaised = true; } // 1 ms sleep granularity for smooth frame pacing
         var cts = _cts = new CancellationTokenSource();
         double dur = Math.Max(0.5, end - start);
-        _task = Task.Factory.StartNew(() => Loop(path, start, dur, w, h, bmp, cts.Token),
+        offset = Math.Clamp(offset, 0, dur - 0.3);
+        _task = Task.Factory.StartNew(() => Loop(path, start, dur, offset, w, h, bmp, cts.Token),
             cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
     }
 
@@ -112,12 +115,16 @@ public sealed class FfmpegPlayer : IDisposable
     public void Dispose() => Stop();
 
     // ---- playback loop ---------------------------------------------------
-    void Loop(string path, double start, double dur, int w, int h, WriteableBitmap bmp, CancellationToken ct)
+    void Loop(string path, double start, double dur, double offset, int w, int h, WriteableBitmap bmp, CancellationToken ct)
     {
         try
         {
+            // The first pass may start part-way in (after a seek); every later pass starts at the segment start.
             while (!ct.IsCancellationRequested)
-                if (!RunOnce(path, start, dur, w, h, bmp, ct)) return; // false = fatal (already reported)
+            {
+                if (!RunOnce(path, start + offset, dur - offset, w, h, bmp, ct)) return; // false = fatal (already reported)
+                offset = 0;
+            }
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { ReportFailure("Playback error: " + ex.Message); }
@@ -215,6 +222,8 @@ public sealed class FfmpegPlayer : IDisposable
             }
 
             Present(bmp, first, w, h);
+            // Queued after the first frame's write, so the image switches straight from the old picture to the new one.
+            _ui.BeginInvoke(DispatcherPriority.Render, () => { if (!ct.IsCancellationRequested && !ReferenceEquals(_target.Source, bmp)) _target.Source = bmp; });
 
             // present frames on schedule: frame i is due at i / Fps seconds on the clock
             int index = 1;
