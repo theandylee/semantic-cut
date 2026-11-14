@@ -1,0 +1,58 @@
+name: release
+
+# Push a tag like v0.1.0 to build and publish a GitHub release with a portable zip.
+# "Run workflow" (manual) builds the zip and attaches it to the run as an artifact only.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to create the release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # Directory.Build.props sends every project's output into <repo>\build\ (shared DLLs once).
+      - name: Build
+        run: dotnet build SemanticCut.sln -c Release
+
+      - name: Package
+        id: pack
+        shell: pwsh
+        run: |
+          $tag = if ('${{ github.ref_type }}' -eq 'tag') { '${{ github.ref_name }}' } else { 'dev-' + '${{ github.sha }}'.Substring(0, 7) }
+          $name = "semantic-cut-$tag-win-x64"
+          New-Item -ItemType Directory $name | Out-Null
+          # Everything the build produced, except debug symbols and any models (those are downloaded by the app on first use).
+          Copy-Item build\* $name -Recurse -Exclude *.pdb, models
+          Copy-Item README.md, LICENSE $name
+          Get-ChildItem $name | Select-Object Name, @{n='MB';e={[math]::Round(($_.Length)/1MB,1)}} | Format-Table -AutoSize
+          Compress-Archive -Path $name -DestinationPath "$name.zip" -CompressionLevel Optimal
+          "zip=$name.zip" >> $env:GITHUB_OUTPUT
+          "Zip size: {0:N0} MB" -f ((Get-Item "$name.zip").Length / 1MB)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pack.outputs.zip }}
+          path: ${{ steps.pack.outputs.zip }}
+          compression-level: 0   # already a zip
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.pack.outputs.zip }}
+          generate_release_notes: true
+          body: |
+            Portable build for Windows x64 (NVIDIA GPU). Unzip anywhere and run `semcut-gui.exe` (GUI) or `semcut.exe` (CLI).
+
+            Needs the **.NET 10 Desktop Runtime**, **ffmpeg** on PATH and the **NVIDIA CUDA 12.x** runtime. The app tells you if one is missing and links to it.
+            The AI models (~3 GB) are downloaded automatically into the `models` folder next to the exe on first use.
